@@ -103,10 +103,11 @@ export class ToolGateway {
     if (response.status !== 402) {
       const responseHeaders = Object.fromEntries(response.headers.entries());
       let body: unknown;
+      const rawText = await response.text();
       try {
-        body = await response.json();
+        body = JSON.parse(rawText);
       } catch {
-        body = await response.text();
+        body = rawText;
       }
       return {
         success: response.ok,
@@ -120,10 +121,11 @@ export class ToolGateway {
     // Step 4: 402 — parse the payment challenge
     const responseHeaders = Object.fromEntries(response.headers.entries());
     let responseBody: unknown;
+    const rawResponseText = await response.text();
     try {
-      responseBody = await response.json();
+      responseBody = JSON.parse(rawResponseText);
     } catch {
-      responseBody = null;
+      responseBody = rawResponseText || null;
     }
 
     const challenge = this.router.parseChallenge(402, responseHeaders, responseBody);
@@ -158,6 +160,24 @@ export class ToolGateway {
         challengeId: challenge.challengeId,
       },
     });
+
+    // Step 4b: Check challenge expiry before committing funds
+    if (new Date(challenge.expiresAt) <= new Date()) {
+      appendEvent({
+        eventType: 'payment:challenge_expired',
+        source: 'tool-gateway',
+        actorId: agentId,
+        payload: { toolId, endpoint, expiresAt: challenge.expiresAt },
+      });
+      return {
+        success: false,
+        statusCode: 402,
+        headers: responseHeaders,
+        body: responseBody,
+        paymentMade: false,
+        error: `Payment challenge expired at ${challenge.expiresAt}`,
+      };
+    }
 
     // Step 5: Reserve funds (two-phase: reserve before payment)
     const holdResult = reserveFunds(agentId, toolId, challenge.amount.usdCents);
@@ -325,15 +345,18 @@ export class ToolGateway {
 
     const retryHeaders = Object.fromEntries(retryResponse.headers.entries());
     let retryBody: unknown;
+    const rawRetryText = await retryResponse.text();
     try {
-      retryBody = await retryResponse.json();
+      retryBody = JSON.parse(rawRetryText);
     } catch {
-      retryBody = await retryResponse.text();
+      retryBody = rawRetryText;
     }
 
-    // Log the completed payment cycle
+    // Log the completed payment cycle (NOT payment:confirmed — that's the
+    // spending-guard's job via confirmHold. Using a distinct type prevents
+    // double-counting in daily spend queries.)
     appendEvent({
-      eventType: 'payment:confirmed',
+      eventType: 'payment:cycle_complete',
       source: 'tool-gateway',
       actorId: agentId,
       payload: {

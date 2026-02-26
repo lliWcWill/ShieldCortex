@@ -168,9 +168,59 @@ export function debitWallet(
   });
 }
 
+
+/**
+ * Debit a wallet WITHOUT re-checking limits.
+ * Used exclusively by confirmHold() where validation already happened in reserveFunds().
+ * Skips: frozen check, per-call limit, daily limit (all verified at reserve time).
+ * Only checks: wallet exists and has sufficient balance.
+ */
+export function debitWalletUnchecked(
+  agentId: string,
+  amountCents: number,
+): WalletOperationResult {
+  if (amountCents <= 0) {
+    return { success: false, balanceCents: 0, error: 'Amount must be positive' };
+  }
+
+  const db = getDatabase();
+  const wallet = getWallet(agentId);
+  if (!wallet) {
+    return { success: false, balanceCents: 0, error: `Wallet not found: ${agentId}` };
+  }
+
+  if (amountCents > wallet.balanceCents) {
+    return {
+      success: false,
+      balanceCents: wallet.balanceCents,
+      error: `Insufficient balance: ${wallet.balanceCents} < ${amountCents}`,
+    };
+  }
+
+  const result = db.prepare(`
+    UPDATE agent_wallets
+    SET balance_cents = balance_cents - @amount,
+        total_spent_cents = total_spent_cents + @amount
+    WHERE agent_id = @agent_id
+  `).run({ amount: amountCents, agent_id: agentId });
+
+  if (result.changes !== 1) {
+    return {
+      success: false,
+      balanceCents: wallet.balanceCents,
+      error: `Wallet update failed: no rows matched for ${agentId}`,
+    };
+  }
+
+  return {
+    success: true,
+    balanceCents: wallet.balanceCents - amountCents,
+  };
+}
+
 /**
  * Get total cents spent by an agent in the last 24 hours.
- * Queries the event_log for payment:confirmed events.
+ * Queries the event_log for payment:hold_confirmed events (append-only pattern).
  * Falls back to 0 if event_log doesn't exist yet (pre-M0.5).
  */
 function getDailySpentCents(
@@ -181,10 +231,10 @@ function getDailySpentCents(
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const row = db.prepare(`
       SELECT COALESCE(SUM(
-        CAST(json_extract(payload, '$.amount.usdCents') AS INTEGER)
+        CAST(json_extract(payload, '$.amountCents') AS INTEGER)
       ), 0) as total
       FROM event_log
-      WHERE event_type = 'payment:confirmed'
+      WHERE event_type = 'payment:hold_confirmed'
         AND actor_id = @agent_id
         AND timestamp >= @cutoff
     `).get({ agent_id: agentId, cutoff }) as { total: number } | undefined;

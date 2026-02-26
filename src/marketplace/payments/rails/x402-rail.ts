@@ -63,6 +63,12 @@ export class X402Rail implements PaymentRail {
     const key = process.env.EVM_PRIVATE_KEY;
     if (!key) return false;
 
+    // Validate key format: must be 0x-prefixed 64-char hex string
+    if (!/^0x[0-9a-fA-F]{64}$/.test(key)) {
+      console.error('[x402] EVM_PRIVATE_KEY malformed — expected 0x + 64 hex chars');
+      return false;
+    }
+
     try {
       const account = privateKeyToAccount(key as `0x${string}`);
       this.accountAddress = account.address;

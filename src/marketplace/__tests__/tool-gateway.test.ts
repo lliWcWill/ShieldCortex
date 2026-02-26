@@ -427,11 +427,14 @@ describe('ToolGateway', () => {
         endpoint: 'https://tool.example.com/api',
       });
 
-      const confirmed = queryEvents('payment:confirmed');
-      const agentConfirmed = confirmed.filter(
+      // spending-guard emits payment:hold_confirmed, gateway emits payment:cycle_complete
+      const holdConfirmed = queryEvents('payment:hold_confirmed').filter(
         e => e.actorId === 'gw-agent-10',
       );
-      expect(agentConfirmed.length).toBeGreaterThanOrEqual(1);
+      const cycleComplete = queryEvents('payment:cycle_complete').filter(
+        e => e.actorId === 'gw-agent-10',
+      );
+      expect(holdConfirmed.length + cycleComplete.length).toBeGreaterThanOrEqual(1);
     });
   });
 });
