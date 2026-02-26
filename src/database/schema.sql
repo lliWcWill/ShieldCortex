@@ -212,3 +212,75 @@ CREATE TABLE IF NOT EXISTS fragmentation_entities (
 CREATE INDEX IF NOT EXISTS idx_frag_entities_memory ON fragmentation_entities(memory_id);
 CREATE INDEX IF NOT EXISTS idx_frag_entities_text ON fragmentation_entities(entity_value);
 CREATE INDEX IF NOT EXISTS idx_frag_entities_type ON fragmentation_entities(entity_type);
+
+-- Trust Marketplace: Event log for hash-chained audit trail
+CREATE TABLE IF NOT EXISTS event_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  timestamp TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  source TEXT NOT NULL,
+  chat_id INTEGER,
+  session_id TEXT,
+  task_id TEXT,
+  run_id TEXT,
+  trace_id TEXT,
+  parent_span_id TEXT,
+  span_id TEXT,
+  policy_decision_id TEXT,
+  risk_score REAL,
+  actor_type TEXT,
+  actor_id TEXT,
+  payload TEXT NOT NULL,
+  inputs_hash TEXT,
+  outputs_hash TEXT,
+  duration_ms INTEGER,
+  tokens_in INTEGER,
+  tokens_out INTEGER,
+  cost_usd REAL,
+  chain_epoch TEXT,
+  sequence_num INTEGER,
+  prev_hash TEXT,
+  event_hash TEXT NOT NULL,
+  UNIQUE(chain_epoch, sequence_num)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_log_timestamp ON event_log(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_event_log_type ON event_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_event_log_source ON event_log(source);
+CREATE INDEX IF NOT EXISTS idx_event_log_session ON event_log(session_id);
+CREATE INDEX IF NOT EXISTS idx_event_log_chain ON event_log(chain_epoch, sequence_num);
+
+-- Trust Marketplace: Agent wallets for payment management
+CREATE TABLE IF NOT EXISTS agent_wallets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id TEXT UNIQUE NOT NULL,
+  display_name TEXT,
+  daily_limit_cents INTEGER DEFAULT 500,
+  per_call_limit_cents INTEGER DEFAULT 100,
+  balance_cents INTEGER DEFAULT 0,
+  total_spent_cents INTEGER DEFAULT 0,
+  allowed_tools TEXT DEFAULT '["*"]',
+  allowed_rails TEXT DEFAULT '["x402"]',
+  auto_approve_threshold_cents INTEGER DEFAULT 50,
+  frozen INTEGER DEFAULT 0,
+  frozen_reason TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  last_replenished TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_wallets_agent ON agent_wallets(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_wallets_frozen ON agent_wallets(frozen);
+
+-- Trust Marketplace: Tool-specific auto-approve overrides
+CREATE TABLE IF NOT EXISTS tool_auto_approve_overrides (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id TEXT NOT NULL,
+  tool_id TEXT NOT NULL,
+  threshold_cents INTEGER NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(agent_id, tool_id),
+  FOREIGN KEY (agent_id) REFERENCES agent_wallets(agent_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_tool_overrides_agent ON tool_auto_approve_overrides(agent_id);
+CREATE INDEX IF NOT EXISTS idx_tool_overrides_tool ON tool_auto_approve_overrides(tool_id);

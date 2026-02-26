@@ -80,7 +80,7 @@ export function analyzeFirewall(
 
   // Determine result based on mode
   const { result, reason } = determineResult(
-    config.mode,
+    config,
     instructions,
     privilege,
     encoding,
@@ -99,7 +99,7 @@ export function analyzeFirewall(
 }
 
 function determineResult(
-  mode: DefenceConfig['mode'],
+  config: DefenceConfig,
   instructions: InstructionDetectionResult,
   privilege: PrivilegeDetectionResult,
   encoding: EncodingDetectionResult,
@@ -107,6 +107,7 @@ function determineResult(
   trustScore: number,
   threatIndicators: ThreatIndicator[],
 ): { result: FirewallResult; reason: string } {
+  const mode = config.mode;
   const lowTrust = trustScore < 0.5;
   const detectionCount = threatIndicators.length;
 
@@ -137,13 +138,17 @@ function determineResult(
 
   // ── Balanced mode ──
 
-  // Instruction injection → quarantine
+  // Instruction injection → quarantine only if confidence meets threshold
   if (instructions.detected) {
-    const result: FirewallResult = lowTrust ? 'BLOCK' : 'QUARANTINE';
-    return {
-      result,
-      reason: `Instruction injection detected (confidence: ${instructions.confidence})${lowTrust ? ', low trust source' : ''}`,
-    };
+    const threshold = config.instructionInjectionThreshold;
+    if (instructions.confidence >= threshold) {
+      const result: FirewallResult = lowTrust ? 'BLOCK' : 'QUARANTINE';
+      return {
+        result,
+        reason: `Instruction injection detected (confidence: ${instructions.confidence})${lowTrust ? ', low trust source' : ''}`,
+      };
+    }
+    // Below threshold: allow with warning (logged via threatIndicators)
   }
 
   // High severity privilege escalation → quarantine

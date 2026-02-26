@@ -74,6 +74,8 @@ export interface DefenceConfig {
   flagThreshold: number;
   /** When true, unknown/undetected sources get trust 0.3 instead of 0.5, and all writes are auto-quarantined */
   strictSourceMode: boolean;
+  /** Minimum confidence to trigger quarantine/block on instruction injection in balanced mode (0-1). Default 0.9. */
+  instructionInjectionThreshold: number;
 }
 
 export const DEFAULT_DEFENCE_CONFIG: DefenceConfig = {
@@ -84,6 +86,7 @@ export const DEFAULT_DEFENCE_CONFIG: DefenceConfig = {
   autoQuarantineThreshold: 0.3,
   flagThreshold: 0.5,
   strictSourceMode: false,
+  instructionInjectionThreshold: 0.9,
 };
 
 // ── Database Row Interfaces ──

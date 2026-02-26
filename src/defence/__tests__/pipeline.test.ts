@@ -20,6 +20,7 @@ const testConfig: DefenceConfig = {
   autoQuarantineThreshold: 0.3,
   flagThreshold: 0.5,
   strictSourceMode: false,
+  instructionInjectionThreshold: 0.9,
 };
 
 beforeAll(() => {
