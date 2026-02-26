@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS fragmentation_entities (
   entity_value TEXT NOT NULL,
   entity_type TEXT NOT NULL,
   context_snippet TEXT,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
 );
 

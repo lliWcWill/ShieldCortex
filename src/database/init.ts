@@ -213,15 +213,15 @@ function runMigrations(database: Database.Database): void {
         entity_value TEXT NOT NULL,
         entity_type TEXT NOT NULL,
         context_snippet TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
       );
       CREATE INDEX IF NOT EXISTS idx_frag_entities_memory ON fragmentation_entities(memory_id);
       CREATE INDEX IF NOT EXISTS idx_frag_entities_text ON fragmentation_entities(entity_value);
       CREATE INDEX IF NOT EXISTS idx_frag_entities_type ON fragmentation_entities(entity_type);
     `);
-  } catch {
-    // Tables may already exist - safe to ignore
+  } catch (err) {
+    console.error('[db] Defence tables migration failed:', err instanceof Error ? err.message : err);
   }
 
   // Migration: project column on defence_audit and quarantine tables
@@ -235,8 +235,8 @@ function runMigrations(database: Database.Database): void {
     if (quarantineCols.length > 0 && !quarantineCols.some(c => c.name === 'project')) {
       database.exec('ALTER TABLE quarantine ADD COLUMN project TEXT');
     }
-  } catch {
-    // Safe to ignore if tables don't exist yet
+  } catch (err) {
+    console.error('[db] Defence project column migration failed:', err instanceof Error ? err.message : err);
   }
 
   // Backfill: set project on defence_audit/quarantine entries that have NULL project
@@ -262,8 +262,8 @@ function runMigrations(database: Database.Database): void {
         SELECT project FROM memories WHERE project IS NOT NULL GROUP BY project ORDER BY COUNT(*) DESC LIMIT 1
       ) WHERE project IS NULL`);
     }
-  } catch {
-    // Safe to ignore
+  } catch (err) {
+    console.error('[db] Defence backfill migration failed:', err instanceof Error ? err.message : err);
   }
 
   // Migration: Ontology tables (entities, triples, memory_entities)
@@ -307,8 +307,8 @@ function runMigrations(database: Database.Database): void {
         PRIMARY KEY (memory_id, entity_id)
       );
     `);
-  } catch {
-    // Tables may already exist - safe to ignore
+  } catch (err) {
+    console.error('[db] Ontology tables migration failed:', err instanceof Error ? err.message : err);
   }
 }
 
@@ -625,7 +625,7 @@ function getInlineSchema(): string {
       entity_value TEXT NOT NULL,
       entity_type TEXT NOT NULL,
       context_snippet TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
     );
 
