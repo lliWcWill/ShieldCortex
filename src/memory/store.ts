@@ -1210,14 +1210,20 @@ export function getRecentMemories(
   limit: number = 10,
   project?: string,
   source?: DefenceSource,
+  includeGlobal: boolean = true,
 ): Memory[] {
   const db = getDatabase();
   let sql = 'SELECT * FROM memories';
   const params: unknown[] = [];
 
   if (project) {
-    sql += ' WHERE project = ?';
-    params.push(project);
+    if (includeGlobal) {
+      sql += ' WHERE (project = ? OR scope = ?)';
+      params.push(project, 'global');
+    } else {
+      sql += ' WHERE project = ?';
+      params.push(project);
+    }
   }
 
   sql += ' ORDER BY last_accessed DESC LIMIT ?';
@@ -1253,17 +1259,23 @@ export function getHighPriorityMemories(
   limit: number = 10,
   project?: string,
   source?: DefenceSource,
+  includeGlobal: boolean = true,
 ): Memory[] {
   const db = getDatabase();
   let sql = `
-    SELECT * FROM memories
-    WHERE salience >= 0.6
+      SELECT * FROM memories
+      WHERE salience >= 0.6
   `;
   const params: unknown[] = [];
 
   if (project) {
-    sql += ' AND project = ?';
-    params.push(project);
+    if (includeGlobal) {
+      sql += ' AND (project = ? OR scope = ?)';
+      params.push(project, 'global');
+    } else {
+      sql += ' AND project = ?';
+      params.push(project);
+    }
   }
 
   sql += ' ORDER BY salience DESC, last_accessed DESC LIMIT ?';

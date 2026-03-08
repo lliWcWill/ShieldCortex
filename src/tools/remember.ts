@@ -30,7 +30,7 @@ export const rememberSchema = z.object({
   transferable: z.boolean().optional()
     .describe('Whether this memory can be transferred to other projects'),
   source: z.object({
-    type: z.enum(['user', 'email', 'web', 'agent', 'file', 'api']),
+    type: z.enum(['user', 'cli', 'hook', 'email', 'web', 'agent', 'file', 'api']),
     identifier: z.string(),
   }).optional().describe('Source of this memory for trust scoring'),
 });

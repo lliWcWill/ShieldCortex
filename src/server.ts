@@ -121,30 +121,32 @@ export function createServer(dbPath?: string): McpServer {
 - Important notes ("Remember to test the edge cases")
 
 The system automatically detects importance, categorizes, and manages storage.`,
-    {
-      title: z.string().describe('Short title for the memory'),
-      content: z.string().describe('Detailed content'),
-      category: z.enum([
-        'architecture', 'pattern', 'preference', 'error',
+      {
+        title: z.string().describe('Short title for the memory'),
+        content: z.string().describe('Detailed content'),
+        category: z.enum([
+          'architecture', 'pattern', 'preference', 'error',
         'context', 'learning', 'todo', 'note', 'relationship', 'custom'
       ]).optional().describe('Category (auto-detected if not provided)'),
       type: z.enum(['short_term', 'long_term', 'episodic']).optional()
         .describe('Memory type (auto-determined if not provided)'),
       project: z.string().optional().describe('Project scope. Auto-detected from working directory if not provided. Use "*" for global.'),
       tags: z.array(z.string()).optional().describe('Tags for categorization'),
-      importance: z.enum(['low', 'normal', 'high', 'critical']).optional()
-        .describe('Override automatic salience'),
-      scope: z.enum(['project', 'global']).optional()
-        .describe('Memory scope: project (default) or global (cross-project)'),
-      transferable: z.boolean().optional()
-        .describe('Whether this memory can be transferred to other projects'),
-    },
-    async (args) => {
-      const result = await executeRemember(args);
-      return {
-        content: [{ type: 'text', text: formatRememberResult(result) }],
-      };
-    }
+        importance: z.enum(['low', 'normal', 'high', 'critical']).optional()
+          .describe('Override automatic salience'),
+        scope: z.enum(['project', 'global']).optional()
+          .describe('Memory scope: project (default) or global (cross-project)'),
+        transferable: z.boolean().optional()
+          .describe('Whether this memory can be transferred to other projects'),
+        source: sourceParam,
+      },
+      async (args) => {
+        const source = resolveToolSource(args.source as DefenceSource | undefined, 'remember');
+        const result = await executeRemember({ ...args, source });
+        return {
+          content: [{ type: 'text', text: formatRememberResult(result) }],
+        };
+      }
   );
 
   // Recall - Search and retrieve memories

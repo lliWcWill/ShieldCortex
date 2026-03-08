@@ -62,11 +62,11 @@ export async function executeRecall(input: RecallInput): Promise<{
 
     switch (input.mode) {
       case 'recent':
-        memories = getRecentMemories(input.limit, projectFilter, source);
+        memories = getRecentMemories(input.limit, projectFilter, source, input.includeGlobal);
         break;
 
       case 'important':
-        memories = getHighPriorityMemories(input.limit, projectFilter, source);
+        memories = getHighPriorityMemories(input.limit, projectFilter, source, input.includeGlobal);
         break;
 
       case 'search':
