@@ -27,14 +27,28 @@ export interface RecentEntity {
  */
 export function getRecentEntities(windowHours: number): RecentEntity[] {
   const db = getDatabase();
-  const rows = db.prepare(
-    `SELECT entity_type, entity_value, memory_id, detected_at
-     FROM fragmentation_entities
-     WHERE detected_at >= datetime('now', ? || ' hours')
-     ORDER BY detected_at DESC`
-  ).all(-windowHours) as RecentEntity[];
 
-  return rows;
+  // Primary path: newer schema uses detected_at
+  try {
+    const rows = db.prepare(
+      `SELECT entity_type, entity_value, memory_id, detected_at
+       FROM fragmentation_entities
+       WHERE detected_at >= datetime('now', ? || ' hours')
+       ORDER BY detected_at DESC`
+    ).all(-windowHours) as RecentEntity[];
+
+    return rows;
+  } catch {
+    // Fallback path: older schema used created_at
+    const rows = db.prepare(
+      `SELECT entity_type, entity_value, memory_id, created_at AS detected_at
+       FROM fragmentation_entities
+       WHERE created_at >= datetime('now', ? || ' hours')
+       ORDER BY created_at DESC`
+    ).all(-windowHours) as RecentEntity[];
+
+    return rows;
+  }
 }
 
 /**
