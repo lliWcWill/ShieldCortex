@@ -326,7 +326,9 @@ export function addMemory(
   // Determine scope and transferable flag for cross-project knowledge
   const scope = input.scope ??
     (detectGlobalPattern(input.content, category, tags) ? 'global' : 'project');
-  const transferable = input.transferable ?? (scope === 'global' ? 1 : 0);
+  const transferable = input.transferable === undefined
+    ? (scope === 'global' ? 1 : 0)
+    : (input.transferable ? 1 : 0);
 
   const stmt = db.prepare(`
     INSERT INTO memories (type, category, title, content, project, tags, salience, metadata, scope, transferable)

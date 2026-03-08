@@ -562,8 +562,8 @@ describe('Semantic Linking', () => {
     });
   });
 
-  describe('Integration: detectRelationships via addMemory', () => {
-    it('should auto-link related memories with different tags', async () => {
+    describe('Integration: detectRelationships via addMemory', () => {
+      it('should auto-link related memories with different tags', async () => {
       const { initDatabase, closeDatabase } = await import('../database/init.js');
       const { addMemory, getRelatedMemories, deleteMemory } = await import('../memory/store.js');
 
@@ -628,11 +628,43 @@ describe('Semantic Linking', () => {
         // Close the database connection
         closeDatabase();
       }
+      });
     });
-  });
 
-  describe('enrichMemory', () => {
-    it('should enrich a memory with new related context', async () => {
+    describe('SQLite binding normalization', () => {
+      it('should store boolean transferable flags without sqlite bind errors', async () => {
+        const { initDatabase, closeDatabase } = await import('../database/init.js');
+        const { addMemory, getMemoryById, deleteMemory } = await import('../memory/store.js');
+
+        closeDatabase();
+        initDatabase(':memory:');
+
+        let memoryId: number | undefined;
+        try {
+          const memory = addMemory({
+            title: 'Boolean transferable regression',
+            content: 'Ensure better-sqlite3 receives normalized scalar values for transferable flags.',
+            project: 'test-project',
+            scope: 'project',
+            transferable: false,
+          });
+          memoryId = memory.id;
+
+          const stored = getMemoryById(memoryId);
+          expect(stored).toBeDefined();
+          expect(stored!.transferable).toBe(false);
+          expect(stored!.scope).toBe('project');
+        } finally {
+          if (memoryId) {
+            try { deleteMemory(memoryId); } catch { /* ignore */ }
+          }
+          closeDatabase();
+        }
+      });
+    });
+
+    describe('enrichMemory', () => {
+      it('should enrich a memory with new related context', async () => {
       const { initDatabase, closeDatabase } = await import('../database/init.js');
       const { addMemory, enrichMemory, getMemoryById, deleteMemory } = await import('../memory/store.js');
 
