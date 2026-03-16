@@ -2,6 +2,7 @@
  * Memory access control — enforces read/write/delete policies based on trust.
  *
  * Access rules:
+ *   Trust = 1.0  → Full orchestrator: read all, write direct, delete any
  *   Trust ≥ 0.7  → Read all, write direct, delete own
  *   Trust 0.5–0.7 → Read own + non-restricted, write quarantine, delete own
  *   Trust < 0.5  → Read own only, write quarantine, delete none
@@ -74,6 +75,10 @@ export function checkAccess(
   }
 
   if (operation === 'delete') {
+    // Orchestrator override: user-level trust (1.0) can delete any memory
+    if (trust >= 1.0) {
+      return { canRead: true, canWrite: false, canDelete: true, writeRequiresQuarantine: false, reason: 'Orchestrator deletion (full trust)' };
+    }
     if (isOwner && trust >= 0.5) {
       return { canRead: true, canWrite: false, canDelete: true, writeRequiresQuarantine: false, reason: 'Owner deletion' };
     }

@@ -113,9 +113,12 @@ export async function executeRecall(input: RecallInput): Promise<{
  * Format a single memory for display
  */
 export function formatMemory(memory: Memory, verbose: boolean = false): string {
+  const content = verbose
+    ? memory.content
+    : `${memory.content.slice(0, 200)}${memory.content.length > 200 ? '...' : ''}`;
   const lines = [
     `[${memory.id}] **${memory.title}**`,
-    `    ${memory.content.slice(0, 200)}${memory.content.length > 200 ? '...' : ''}`,
+    `    ${content}`,
   ];
 
   if (verbose) {
