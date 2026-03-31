@@ -106,7 +106,7 @@ function escapeFts5Query(query: string): string {
       }
       return term;
     })
-    .join(' ');
+    .join(' OR ');
 }
 
 /**
@@ -1037,7 +1037,17 @@ export async function searchMemories(
   sql += ' ORDER BY m.salience DESC, m.last_accessed DESC LIMIT ?';
   params.push(limit);
 
-  const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
+    let rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
+
+    // VECTOR FALLBACK: If FTS returned nothing but vector search found matches,
+    // fetch those memories directly so semantic similarity still works.
+    if (rows.length === 0 && vectorResults.size > 0) {
+      const vectorIds = [...vectorResults.keys()].slice(0, limit);
+      const placeholders = vectorIds.map(() => '?').join(',');
+      rows = db.prepare(
+        `SELECT *, 0 as rank FROM memories m WHERE m.id IN (${placeholders})`
+      ).all(...vectorIds) as Record<string, unknown>[];
+    }
 
   // Convert to SearchResult with computed scores
   const results: SearchResult[] = rows.map(row => {
