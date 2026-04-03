@@ -158,4 +158,44 @@ describe('graph extractor', () => {
       ])
     );
   });
+
+  it('canonicalizes SR API aliases to Smart Receive API', () => {
+    const result = extractFromMemory(
+      'alias note',
+      'bertta103 waiting on SR API before rename.',
+      'architecture'
+    );
+
+    expect(result.entities).toEqual(
+      expect.arrayContaining([
+        { name: 'Smart Receive API', type: 'service' },
+      ])
+    );
+    expect(result.entities).not.toContainEqual({ name: 'SR', type: 'tool' });
+    expect(result.entities).not.toContainEqual({ name: 'SR API', type: 'service' });
+    expect(result.triples).toContainEqual({
+      subject: 'bertta103',
+      predicate: 'waiting_on',
+      object: 'Smart Receive API',
+    });
+  });
+
+  it('canonicalizes Smart Receive dependency aliases to Smart Receive API', () => {
+    const result = extractFromMemory(
+      'dependency alias note',
+      'bertta103 depends on Smart Receive.',
+      'architecture'
+    );
+
+    expect(result.entities).toEqual(
+      expect.arrayContaining([
+        { name: 'Smart Receive API', type: 'service' },
+      ])
+    );
+    expect(result.triples).toContainEqual({
+      subject: 'bertta103',
+      predicate: 'depends_on',
+      object: 'Smart Receive API',
+    });
+  });
 });

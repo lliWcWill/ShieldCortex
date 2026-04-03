@@ -93,6 +93,12 @@ const REL_ENTITY_RE = String.raw`(${REL_ENTITY_PART}(?:\s+${REL_ENTITY_PART}){0,
 const LEADING_HEDGE_RE = /^(?:(?:i think|maybe|not sure(?: but)?|looks like|seems like|apparently)\s+)+/i;
 const REPORTING_PREFIX_RE = /^(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+says\s+)/;
 const TRAILING_HELPER_RE = /\s+(?:is|was|are|were)$/i;
+const SERVICE_SUFFIX_WORDS = new Set(['api', 'server', 'service', 'plugin', 'framework', 'library', 'database']);
+const ENTITY_ALIASES = new Map<string, { name: string; type: EntityType }>([
+  ['smart receive api', { name: 'Smart Receive API', type: 'service' }],
+  ['smart receive', { name: 'Smart Receive API', type: 'service' }],
+  ['sr api', { name: 'Smart Receive API', type: 'service' }],
+]);
 
 export function extractFromMemory(title: string, content: string, category: string): ExtractionResult {
   const text = (title || '') + '\n' + (content || '');
@@ -103,6 +109,11 @@ export function extractFromMemory(title: string, content: string, category: stri
   const entityMap = new Map<string, ExtractedEntity>();
 
   function addEntity(name: string, type: EntityType): void {
+    const alias = ENTITY_ALIASES.get(name.toLowerCase());
+    if (alias) {
+      name = alias.name;
+      type = alias.type;
+    }
     if (STOPWORDS.has(name.toLowerCase())) return;
     if (name.length < 2) return;
     const key = `${name}::${type}`;
@@ -247,13 +258,15 @@ export function extractFromMemory(title: string, content: string, category: stri
   }
 
   function normalizePhrase(value: string): string {
-    return value
+    const normalized = value
       .trim()
       .replace(/^[\s,.;:()"'`-]+|[\s,.;:()"'`-]+$/g, '')
       .replace(LEADING_HEDGE_RE, '')
       .replace(REPORTING_PREFIX_RE, '')
       .replace(TRAILING_HELPER_RE, '')
       .replace(/\s+/g, ' ');
+    const alias = ENTITY_ALIASES.get(normalized.toLowerCase());
+    return alias ? alias.name : normalized;
   }
 
   function stripFillerPrefix(value: string): string {
@@ -387,6 +400,17 @@ export function extractFromMemory(title: string, content: string, category: stri
     if (entity.type !== 'tool' || entity.name.includes(' ')) return true;
 
     const escaped = entity.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const isAcronymOfService = Array.from(entityMap.values()).some(other =>
+      other.type === 'service' &&
+      other.name
+        .split(/\s+/)
+        .filter(part => !SERVICE_SUFFIX_WORDS.has(part.toLowerCase()))
+        .map(part => part[0])
+        .join('')
+        .toLowerCase() === entity.name.toLowerCase()
+    );
+    if (isAcronymOfService) return false;
+
     return !Array.from(entityMap.values()).some(other =>
       other.type === 'service' &&
       new RegExp(`\\b\\w+\\s+${escaped}\\s+(?:API|server|service|plugin|framework|library|database)\\b`, 'i').test(other.name)
