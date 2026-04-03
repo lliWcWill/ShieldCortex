@@ -79,7 +79,8 @@ const STOPWORDS = new Set([
   'extraction', 'implementation', 'configuration', 'optimization',
 ]);
 
-const FILE_EXT_RE = /\b[\w./-]+\.(ts|py|js|sql|json|md|tsx|jsx|rs|go|css|html)\b/g;
+const FILE_EXT_SCAN_RE = /\b[\w./-]+\.(ts|py|js|sql|json|md|tsx|jsx|rs|go|css|html)\b/g;
+const FILE_EXT_ENTITY_RE = /\b[\w./-]+\.(ts|py|js|sql|json|md|tsx|jsx|rs|go|css|html)\b/i;
 const DIR_PATH_RE = /\b(src|lib|dist|tests?|scripts?|dashboard)\/[\w./-]+\b/g;
 const USERNAME_RE = /@(\w+)/g;
 const NAME_SAID_RE = /\b([A-Z][a-z]+)\s+(?:said|mentioned|suggested|noted|asked|proposed)\b/g;
@@ -87,6 +88,11 @@ const PASCAL_CASE_RE = /\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b/g;
 const BEFORE_KEYWORD_RE = /\b(\w+)\s+(?:database|server|API|framework|library|plugin|extension)\b/g;
 const CONCEPT_RE = /\b(?:architecture|pattern|approach|strategy|design)\s+(?:is\s+)?(\w[\w\s-]{0,30}?\w)\b/gi;
 const CONCEPT_BEFORE_RE = /\b([\w-]+)\s+(?:architecture|pattern|approach|strategy|design)\b/gi;
+const REL_ENTITY_PART = String.raw`[\w./-]+`;
+const REL_ENTITY_RE = String.raw`(${REL_ENTITY_PART}(?:\s+${REL_ENTITY_PART}){0,5})`;
+const LEADING_HEDGE_RE = /^(?:(?:i think|maybe|not sure(?: but)?|looks like|seems like|apparently)\s+)+/i;
+const REPORTING_PREFIX_RE = /^(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+says\s+)/;
+const TRAILING_HELPER_RE = /\s+(?:is|was|are|were)$/i;
 
 export function extractFromMemory(title: string, content: string, category: string): ExtractionResult {
   const text = (title || '') + '\n' + (content || '');
@@ -108,7 +114,7 @@ export function extractFromMemory(title: string, content: string, category: stri
   // --- Entity extraction ---
 
   // Files
-  for (const m of text.matchAll(FILE_EXT_RE)) {
+  for (const m of text.matchAll(FILE_EXT_SCAN_RE)) {
     addEntity(m[0], 'file');
   }
   for (const m of text.matchAll(DIR_PATH_RE)) {
@@ -187,29 +193,49 @@ export function extractFromMemory(title: string, content: string, category: stri
   const tripleSet = new Set<string>();
 
   function addTriple(subject: string, predicate: string, object: string): void {
-    const key = `${subject}|${predicate}|${object}`;
-    if (!tripleSet.has(key)) {
-      tripleSet.add(key);
-      triples.push({ subject, predicate, object });
-      // Ensure referenced entities exist
-      ensureEntity(subject);
-      ensureEntity(object);
+    subject = cleanupRelationEndpoint(subject, predicate, 'subject');
+    object = cleanupRelationEndpoint(object, predicate, 'object');
+    if (!subject || !object) return;
+    const objects = predicate === 'waiting_on'
+      ? object.split(/\s+\band\b\s+/i).map(part => normalizePhrase(part)).filter(Boolean)
+      : [object];
+
+    for (const normalizedObject of objects) {
+      const key = `${subject}|${predicate}|${normalizedObject}`;
+      if (!tripleSet.has(key)) {
+        tripleSet.add(key);
+        triples.push({ subject, predicate, object: normalizedObject });
+        // Ensure referenced entities exist
+        ensureEntity(subject);
+        ensureEntity(normalizedObject);
+      }
     }
   }
 
   function ensureEntity(name: string): void {
+    name = normalizePhrase(name);
+    if (!name) return;
     if (STOPWORDS.has(name.toLowerCase())) return;
     // Check if any entity with this name exists
     for (const [key] of entityMap) {
       if (key.startsWith(name + '::')) return;
     }
-    // Guess type — only promote to entity if it's a known tool/language
-    if (TOOLS_LOWER.has(name.toLowerCase())) {
+    // Guess type for relation endpoints so extracted triples survive graph insertion.
+    if (FILE_EXT_ENTITY_RE.test(name)) {
+      addEntity(name, 'file');
+    } else if (TOOLS_LOWER.has(name.toLowerCase())) {
       addEntity(TOOLS_LOWER.get(name.toLowerCase())!, 'tool');
     } else if (LANGUAGES_LOWER.has(name.toLowerCase())) {
       addEntity(LANGUAGES_LOWER.get(name.toLowerCase())!, 'language');
+    } else if (/^(?:bertta|radi)\d+$/i.test(name)) {
+      addEntity(name, 'service');
+    } else if (/^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*$/.test(name)) {
+      addEntity(name, 'person');
+    } else if (/\b(?:api|server|service|plugin|framework|library|database)\b/i.test(name)) {
+      addEntity(name, 'service');
+    } else if (/_|-|\d/.test(name)) {
+      addEntity(name, 'concept');
     }
-    // Don't create concept entities for unknown words in triples
   }
 
   function isKnownEntity(name: string): boolean {
@@ -220,38 +246,129 @@ export function extractFromMemory(title: string, content: string, category: stri
     return TOOLS_LOWER.has(name.toLowerCase()) || LANGUAGES_LOWER.has(name.toLowerCase());
   }
 
-  // "using X for Y" → X uses Y
-  for (const m of text.matchAll(/\busing\s+(\w+(?:\.\w+)?)\s+for\s+(\w+(?:\s+\w+)?)\b/gi)) {
-    addTriple(m[1], 'uses', m[2]);
+  function normalizePhrase(value: string): string {
+    return value
+      .trim()
+      .replace(/^[\s,.;:()"'`-]+|[\s,.;:()"'`-]+$/g, '')
+      .replace(LEADING_HEDGE_RE, '')
+      .replace(REPORTING_PREFIX_RE, '')
+      .replace(TRAILING_HELPER_RE, '')
+      .replace(/\s+/g, ' ');
   }
 
-  // "replaced X with Y" → Y replaces X
-  for (const m of text.matchAll(/\breplaced\s+(\w+)\s+with\s+(\w+)\b/gi)) {
-    addTriple(m[2], 'replaces', m[1]);
+  function stripFillerPrefix(value: string): string {
+    let current = value;
+    const fillerPrefixRe = /^(?:(?:i\s+think|i\s+guess|i\s+believe|i\s+suspect|maybe|probably|possibly|not\s+sure|sort\s+of|kind\s+of|looks\s+like|seems\s+like|we\s+think|for\s+now|as\s+far\s+as\s+i\s+know|to\s+me)\b[\s,;:-]*)+/i;
+    while (true) {
+      const next = current.replace(fillerPrefixRe, '').trim();
+      if (next === current) break;
+      current = next;
+    }
+    return current;
   }
 
-  // "X depends on Y"
-  for (const m of text.matchAll(/\b(\w+)\s+depends\s+on\s+(\w+)\b/gi)) {
-    addTriple(m[1], 'depends_on', m[2]);
+  function cleanupRelationEndpoint(value: string, predicate: string, role: 'subject' | 'object'): string {
+    let cleaned = normalizePhrase(value);
+    cleaned = stripFillerPrefix(cleaned);
+
+    if (predicate === 'waiting_on') {
+      if (role === 'subject') {
+        cleaned = cleaned.replace(
+          /^(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*|[\w./-]+)\s+(?:says|said|mentions?|mentioned|notes?|noted|asks?|asked|proposes?|proposed|thinks|thought|believes?|believed)\s+/i,
+          ''
+        );
+        cleaned = stripFillerPrefix(cleaned);
+        cleaned = cleaned.replace(/\s+(?:is|are|was|were)\b(?:\s+.*)?$/i, '').trim();
+      } else {
+        cleaned = cleaned.split(/\s+(?:for|because|since|so|before|after|until|when|while|if|to|via|about|around)\b/i)[0];
+      }
+    }
+
+    return normalizePhrase(cleaned);
   }
 
-  // "fixed X by Y" — only if X or Y are known entities
-  for (const m of text.matchAll(/\bfixed\s+(\w+)\s+by\s+(\w+)\b/gi)) {
-    if (isKnownEntity(m[1]) || isKnownEntity(m[2])) {
-      addTriple(m[2], 'fixes', m[1]);
+  const relationSegments = [
+    ...(title ? [title] : []),
+    ...(content ? content.split(/\n+|(?<=[.!?])\s+/).map(segment => segment.trim()).filter(Boolean) : []),
+  ];
+
+  function extractRelations(re: RegExp, handler: (match: RegExpMatchArray) => void): void {
+    for (const segment of relationSegments) {
+      for (const match of segment.matchAll(re)) {
+        handler(match);
+      }
     }
   }
 
+  // "using X for Y" → X uses Y
+  extractRelations(new RegExp(`\\busing\\s+${REL_ENTITY_RE}\\s+for\\s+${REL_ENTITY_RE}\\b`, 'gi'), m => {
+    addTriple(m[1], 'uses', m[2]);
+  });
+
+  // "X uses Y"
+  extractRelations(new RegExp(`\\b${REL_ENTITY_RE}\\s+uses\\s+${REL_ENTITY_RE}\\b`, 'gi'), m => {
+    addTriple(m[1], 'uses', m[2]);
+  });
+
+  // "replaced X with Y" → Y replaces X
+  extractRelations(new RegExp(`\\breplaced\\s+${REL_ENTITY_RE}\\s+with\\s+${REL_ENTITY_RE}\\b`, 'gi'), m => {
+    addTriple(m[2], 'replaces', m[1]);
+  });
+
+  // "X depends on Y"
+  extractRelations(new RegExp(`\\b${REL_ENTITY_RE}\\s+depends\\s+on\\s+${REL_ENTITY_RE}\\b`, 'gi'), m => {
+    addTriple(m[1], 'depends_on', m[2]);
+  });
+
+  // "X blocked by Y"
+  extractRelations(/\b([\w-]+(?:\s+[\w-]+){0,4}?\s+rollout)(?:\s+on\s+(?:bertta|radi)\d+)?\s+blocked\s+by\s+(.+?)\s*$/gi, m => {
+    addTriple(m[1], 'blocked_by', m[2]);
+  });
+  extractRelations(new RegExp(`\\b${REL_ENTITY_RE}\\s+blocked\\s+by\\s+${REL_ENTITY_RE}\\b`, 'gi'), m => {
+    addTriple(m[1], 'blocked_by', m[2]);
+  });
+
+  // "X deployed to Y"
+  extractRelations(
+    /(?:^|\s)([\w./-]+\.[A-Za-z0-9]+)\s+deployed\s+to\s+(.+?)(?=\s+(?:but|because|before|after|until|when|while)\b|[.!?]|$)/gi,
+    m => {
+      for (const target of m[2].split(/\s*(?:,|\band\b)\s*/i)) {
+        addTriple(m[1], 'deployed_to', target);
+      }
+    }
+  );
+  extractRelations(new RegExp(`\\b${REL_ENTITY_RE}\\s+deployed\\s+to\\s+${REL_ENTITY_RE}\\b`, 'gi'), m => {
+    addTriple(m[1], 'deployed_to', m[2]);
+  });
+
+  // "X is waiting on Y" / "X waiting on Y"
+  extractRelations(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+is\s+waiting\s+on\s+(.+?)(?=\s+(?:before|after|until|when)\b|$)/g, m => {
+    addTriple(m[1], 'waiting_on', m[2]);
+  });
+  extractRelations(/\b((?:bertta|radi)\d+|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:is\s+)?waiting\s+on\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)(?=\s+for\b|\s+(?:before|after|until|when)\b|$)/g, m => {
+    addTriple(m[1], 'waiting_on', m[2]);
+  });
+  extractRelations(new RegExp(`\\b${REL_ENTITY_RE}\\s+(?:is\\s+)?waiting\\s+on\\s+${REL_ENTITY_RE}\\b`, 'gi'), m => {
+    addTriple(m[1], 'waiting_on', m[2]);
+  });
+
+  // "fixed X by Y" — only if X or Y are known entities
+  extractRelations(new RegExp(`\\bfixed\\s+${REL_ENTITY_RE}\\s+by\\s+${REL_ENTITY_RE}\\b`, 'gi'), m => {
+    if (isKnownEntity(m[1]) || isKnownEntity(m[2])) {
+      addTriple(m[2], 'fixes', m[1]);
+    }
+  });
+
   // "chose X over Y"
-  for (const m of text.matchAll(/\bchose\s+(\w+)\s+over\s+(\w+)\b/gi)) {
+  extractRelations(new RegExp(`\\bchose\\s+${REL_ENTITY_RE}\\s+over\\s+${REL_ENTITY_RE}\\b`, 'gi'), m => {
     addTriple('project', 'prefers', m[1]);
     addTriple('project', 'avoids', m[2]);
-  }
+  });
 
   // "X configured with Y"
-  for (const m of text.matchAll(/\b(\w+)\s+configured\s+with\s+(\w+)\b/gi)) {
+  extractRelations(new RegExp(`\\b${REL_ENTITY_RE}\\s+configured\\s+with\\s+${REL_ENTITY_RE}\\b`, 'gi'), m => {
     addTriple(m[1], 'configures', m[2]);
-  }
+  });
 
   // "implemented X" — only if X is a known entity
   for (const m of text.matchAll(/\bimplemented\s+(\w+)\b/gi)) {
@@ -262,12 +379,22 @@ export function extractFromMemory(title: string, content: string, category: stri
   }
 
   // "X extends Y"
-  for (const m of text.matchAll(/\b(\w+)\s+extends\s+(\w+)\b/gi)) {
+  extractRelations(new RegExp(`\\b${REL_ENTITY_RE}\\s+extends\\s+${REL_ENTITY_RE}\\b`, 'gi'), m => {
     addTriple(m[1], 'extends', m[2]);
-  }
+  });
+
+  const entities = Array.from(entityMap.values()).filter(entity => {
+    if (entity.type !== 'tool' || entity.name.includes(' ')) return true;
+
+    const escaped = entity.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return !Array.from(entityMap.values()).some(other =>
+      other.type === 'service' &&
+      new RegExp(`\\b\\w+\\s+${escaped}\\s+(?:API|server|service|plugin|framework|library|database)\\b`, 'i').test(other.name)
+    );
+  });
 
   return {
-    entities: Array.from(entityMap.values()),
+    entities,
     triples,
   };
 }
