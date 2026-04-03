@@ -6,6 +6,7 @@
  */
 
 import { getDatabase } from '../database/init.js';
+import { selectEntityByName } from '../graph/resolve.js';
 
 interface EntityInfo {
   id: number;
@@ -39,9 +40,7 @@ export function handleGraphQuery(args: {
   const predicateFilter = args.predicates ?? null;
 
   // Find entity
-  const entityRow = db.prepare(
-    'SELECT * FROM entities WHERE LOWER(name) = LOWER(?)'
-  ).get(args.entity) as any;
+  const entityRow = selectEntityByName(args.entity) as any;
 
   if (!entityRow) {
     return mcpText({ error: `Entity "${args.entity}" not found in knowledge graph.` });
@@ -168,17 +167,13 @@ export function handleGraphExplain(args: {
   const maxDepth = args.maxDepth ?? 4;
 
   // Resolve entities
-  const fromRow = db.prepare(
-    'SELECT * FROM entities WHERE LOWER(name) = LOWER(?)'
-  ).get(args.from) as any;
+  const fromRow = selectEntityByName(args.from) as any;
 
   if (!fromRow) {
     return mcpText({ error: `Source entity "${args.from}" not found.` });
   }
 
-  const toRow = db.prepare(
-    'SELECT * FROM entities WHERE LOWER(name) = LOWER(?)'
-  ).get(args.to) as any;
+  const toRow = selectEntityByName(args.to) as any;
 
   if (!toRow) {
     return mcpText({ error: `Target entity "${args.to}" not found.` });

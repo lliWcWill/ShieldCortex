@@ -1,6 +1,30 @@
 import { getDatabase } from '../database/init.js';
 import type { EntityType, ExtractionResult } from './extract.js';
 
+export function canonicalEntityTypeForName(name: string): EntityType | undefined {
+  if (/^(?:bertta|radi)\d+$/i.test(name)) return 'service';
+  return undefined;
+}
+
+export function selectEntityByName(name: string): { id: number; name: string; type: string; memory_count?: number; aliases?: string | null } | undefined {
+  const db = getDatabase();
+  const canonicalType = canonicalEntityTypeForName(name);
+
+  if (canonicalType) {
+    return db.prepare(
+      `SELECT *
+       FROM entities
+       WHERE LOWER(name) = LOWER(?)
+       ORDER BY CASE WHEN type = ? THEN 0 ELSE 1 END, memory_count DESC, id ASC
+       LIMIT 1`
+    ).get(name, canonicalType) as { id: number; name: string; type: string; memory_count?: number; aliases?: string | null } | undefined;
+  }
+
+  return db.prepare(
+    'SELECT * FROM entities WHERE LOWER(name) = LOWER(?) ORDER BY memory_count DESC, id ASC LIMIT 1'
+  ).get(name) as { id: number; name: string; type: string; memory_count?: number; aliases?: string | null } | undefined;
+}
+
 export function levenshtein(a: string, b: string): number {
   const m = a.length, n = b.length;
   if (m === 0) return n;
@@ -20,17 +44,27 @@ export function levenshtein(a: string, b: string): number {
 
 export function resolveEntity(name: string, type: EntityType): number {
   const db = getDatabase();
+  const canonicalType = canonicalEntityTypeForName(name) ?? type;
 
   // 1. Exact match
-  const exact = db.prepare('SELECT id FROM entities WHERE name = ? AND type = ?').get(name, type) as { id: number } | undefined;
+  const exact = db.prepare('SELECT id FROM entities WHERE name = ? AND type = ?').get(name, canonicalType) as { id: number } | undefined;
   if (exact) return exact.id;
 
   // 2. Case-insensitive match
-  const ciMatch = db.prepare('SELECT id FROM entities WHERE LOWER(name) = LOWER(?) AND type = ?').get(name, type) as { id: number } | undefined;
+  const ciMatch = db.prepare('SELECT id FROM entities WHERE LOWER(name) = LOWER(?) AND type = ?').get(name, canonicalType) as { id: number } | undefined;
   if (ciMatch) return ciMatch.id;
 
+  // 2b. Same-name duplicates of the wrong type: prefer canonical hostname type and repair in place if needed.
+  const sameNameAnyType = selectEntityByName(name);
+  if (sameNameAnyType) {
+    if (canonicalType && sameNameAnyType.type !== canonicalType) {
+      db.prepare('UPDATE entities SET type = ? WHERE id = ?').run(canonicalType, sameNameAnyType.id);
+    }
+    return sameNameAnyType.id;
+  }
+
   // 3. Alias match
-  const aliasRows = db.prepare('SELECT id, aliases FROM entities WHERE type = ?').all(type) as { id: number; aliases: string | null }[];
+  const aliasRows = db.prepare('SELECT id, aliases FROM entities WHERE type = ?').all(canonicalType) as { id: number; aliases: string | null }[];
   const nameLower = name.toLowerCase();
   for (const row of aliasRows) {
     if (!row.aliases) continue;
@@ -50,9 +84,9 @@ export function resolveEntity(name: string, type: EntityType): number {
   }
 
   // 4. Fuzzy match (names > 5 chars)
-  if (name.length > 5) {
+  if (!canonicalEntityTypeForName(name) && name.length > 5) {
     const candidates = db.prepare('SELECT id, name, aliases FROM entities WHERE type = ? AND LENGTH(name) BETWEEN ? AND ?')
-      .all(type, name.length - 2, name.length + 2) as { id: number; name: string; aliases: string | null }[];
+      .all(canonicalType, name.length - 2, name.length + 2) as { id: number; name: string; aliases: string | null }[];
     for (const cand of candidates) {
       if (levenshtein(name.toLowerCase(), cand.name.toLowerCase()) <= 2) {
         // Append input name as alias
@@ -67,7 +101,7 @@ export function resolveEntity(name: string, type: EntityType): number {
   }
 
   // 5. No match — insert
-  const result = db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run(name, type);
+  const result = db.prepare('INSERT INTO entities (name, type) VALUES (?, ?)').run(name, canonicalType);
   return Number(result.lastInsertRowid);
 }
 
