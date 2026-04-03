@@ -217,19 +217,28 @@ export function extractFromMemory(title: string, content: string, category: stri
         tripleSet.add(key);
         triples.push({ subject, predicate, object: normalizedObject });
         // Ensure referenced entities exist
-        ensureEntity(subject);
-        ensureEntity(normalizedObject);
+        ensureEntity(subject, predicate, 'subject');
+        ensureEntity(normalizedObject, predicate, 'object');
       }
     }
   }
 
-  function ensureEntity(name: string): void {
+  function isLikelyLowercasePersonName(name: string): boolean {
+    if (!/^[a-z][a-z]+$/.test(name)) return false;
+    return !STOPWORDS.has(name.toLowerCase()) && !SERVICE_SUFFIX_WORDS.has(name.toLowerCase());
+  }
+
+  function ensureEntity(name: string, predicate?: string, role?: 'subject' | 'object'): void {
     name = normalizePhrase(name);
     if (!name) return;
     if (STOPWORDS.has(name.toLowerCase())) return;
     // Check if any entity with this name exists
     for (const [key] of entityMap) {
       if (key.startsWith(name + '::')) return;
+    }
+    if (predicate === 'waiting_on' && role === 'object' && isLikelyLowercasePersonName(name)) {
+      addEntity(name, 'person');
+      return;
     }
     // Guess type for relation endpoints so extracted triples survive graph insertion.
     if (FILE_EXT_ENTITY_RE.test(name)) {

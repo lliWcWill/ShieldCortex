@@ -198,4 +198,14 @@ describe('graph extractor', () => {
       object: 'Smart Receive API',
     });
   });
+
+  it('does not promote lowercase noun phrases as people', () => {
+    const result = extractFromMemory(
+      'noun phrase note',
+      'bertta103 waiting on rollout cleanup before rename.',
+      'architecture'
+    );
+
+    expect(result.entities).not.toContainEqual({ name: 'rollout cleanup', type: 'person' });
+  });
 });
