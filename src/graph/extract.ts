@@ -237,7 +237,7 @@ export function extractFromMemory(title: string, content: string, category: stri
       if (key.startsWith(name + '::')) return;
     }
     if (predicate === 'waiting_on' && role === 'object' && isLikelyLowercasePersonName(name)) {
-      addEntity(name, 'person');
+      addEntity(name, 'concept');
       return;
     }
     // Guess type for relation endpoints so extracted triples survive graph insertion.

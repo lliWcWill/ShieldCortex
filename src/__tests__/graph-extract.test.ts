@@ -136,12 +136,8 @@ describe('graph extractor', () => {
         { name: 'bertta103', type: 'service' },
       ])
     );
-    expect(result.entities).not.toEqual(
-      expect.arrayContaining([
-        { name: 'Receive', type: 'tool' },
-        { name: 'Smart Receive API and Jacob', type: 'service' },
-      ])
-    );
+    expect(result.entities).not.toContainEqual({ name: 'Receive', type: 'tool' });
+    expect(result.entities).not.toContainEqual({ name: 'Smart Receive API and Jacob', type: 'service' });
   });
 
   it('splits waiting-on targets joined with and into separate triples', () => {
@@ -207,5 +203,21 @@ describe('graph extractor', () => {
     );
 
     expect(result.entities).not.toContainEqual({ name: 'rollout cleanup', type: 'person' });
+  });
+
+  it('persists single-word lowercase waiting-on nouns as concepts', () => {
+    const result = extractFromMemory(
+      'single-word noun note',
+      'bertta103 waiting on firmware before rename.',
+      'architecture'
+    );
+
+    expect(result.triples).toContainEqual({
+      subject: 'bertta103',
+      predicate: 'waiting_on',
+      object: 'firmware',
+    });
+    expect(result.entities).toContainEqual({ name: 'firmware', type: 'concept' });
+    expect(result.entities).not.toContainEqual({ name: 'firmware', type: 'person' });
   });
 });

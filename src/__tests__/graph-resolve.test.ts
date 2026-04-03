@@ -19,7 +19,7 @@ describe('graph resolve integration', () => {
     tempDir = undefined;
   });
 
-  it('persists lowercase waiting-on people through resolve', () => {
+  it('persists lowercase waiting-on entities through resolve', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'shieldcortex-home-'));
     const dbPath = join(tempDir, 'memories.db');
     const db = initDatabase(dbPath);
@@ -66,7 +66,7 @@ describe('graph resolve integration', () => {
       .prepare('SELECT name, type FROM entities WHERE name = ?')
       .get('jacob') as { name: string; type: string } | undefined;
 
-    expect(person).toEqual({ name: 'jacob', type: 'person' });
+    expect(person).toEqual({ name: 'jacob', type: 'concept' });
   });
 
   it('persists split SR waiting-on targets through resolve', () => {
@@ -116,6 +116,6 @@ describe('graph resolve integration', () => {
       .prepare('SELECT name, type FROM entities WHERE name = ?')
       .get('jacob') as { name: string; type: string } | undefined;
 
-    expect(jacob).toEqual({ name: 'jacob', type: 'person' });
+    expect(jacob).toEqual({ name: 'jacob', type: 'concept' });
   });
 });
